@@ -19,6 +19,12 @@ services:
         generateValue: true
       - key: FRONTEND_URL
         value: https://your-frontend.netlify.app
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_CALLBACK_URL
+        value: https://your-backend.onrender.com/api/auth/google/callback
 
 databases:
   - name: portfolio-db
