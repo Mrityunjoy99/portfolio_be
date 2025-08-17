@@ -1,0 +1,232 @@
+# CLAUDE.md - Portfolio Backend Context
+
+## Project Overview
+
+This is the backend API for Mrityunjoy Dey's portfolio website, built with Express.js and PostgreSQL. The API provides secure endpoints for managing portfolio content, user authentication, and contact form submissions.
+
+## Tech Stack & Dependencies
+
+- **Framework**: Express.js 5.1.0 (ES modules)
+- **Database**: PostgreSQL with pg driver (8.16.3)
+- **Authentication**: JWT (jsonwebtoken 9.0.2) + Passport.js with Google OAuth
+- **Security**: Helmet, CORS, Rate Limiting, bcryptjs
+- **File Handling**: Multer 2.0.2 with secure presigned URLs
+- **Validation**: express-validator 7.2.1
+- **Session Management**: express-session 1.18.2
+- **Development**: nodemon 3.1.10
+
+## Project Structure
+
+```
+mrityunjoy-portfolio-be/
+├── server/
+│   ├── index.js              # Main server entry point
+│   ├── config/
+│   │   ├── database.js       # PostgreSQL connection & helpers
+│   │   └── passport.js       # Passport strategies (Google OAuth, JWT)
+│   ├── middleware/
+│   │   └── auth.js           # Authentication middleware
+│   └── routes/
+│       ├── auth.js           # Authentication endpoints
+│       ├── profile.js        # Profile CRUD operations
+│       ├── skills.js         # Skills management
+│       ├── experiences.js    # Work experience
+│       ├── projects.js       # Portfolio projects
+│       ├── contact.js        # Contact form submissions
+│       ├── admin.js          # Admin dashboard
+│       └── files.js          # Secure file handling
+├── db/
+│   ├── schema.sql            # Complete database schema
+│   ├── seed.sql              # Initial data
+│   ├── migration-*.sql       # Database migrations
+└── scripts/
+    └── setup-db.js           # Database initialization
+```
+
+## Database Schema
+
+### Core Tables
+- **profile**: Personal information (name, title, bio, social links)
+- **skills**: Technical skills with categories and proficiency levels
+- **experiences**: Work history with achievements
+- **projects**: Portfolio projects with technologies and images
+- **contact_submissions**: Contact form entries
+- **admin_users**: Authentication and user management
+
+### Key Features
+- UUID primary keys throughout
+- Proper foreign key relationships
+- Indexed for performance
+- Automatic timestamp triggers
+- Soft deletes where appropriate
+
+## API Architecture
+
+### Public Endpoints
+- `GET /api/health` - Health check
+- `GET /api/profile` - Profile information
+- `GET /api/skills` - Skills list (filterable by category/featured)
+- `GET /api/experiences` - Work experience
+- `GET /api/projects` - Portfolio projects
+- `POST /api/contact/submit` - Contact form submission
+
+### Protected Endpoints (Admin Authentication Required)
+- `POST /api/auth/login` - Admin login
+- `GET /api/auth/me` - Current user info
+- `POST /api/auth/change-password` - Password change
+- All CRUD operations for skills, experiences, projects
+- `GET /api/admin/dashboard/stats` - Dashboard statistics
+- File upload and management via `/api/files`
+
+### OAuth Integration
+- `GET /api/auth/google` - Google OAuth initiation
+- `GET /api/auth/google/callback` - OAuth callback
+- Restricted to allowlist of admin emails
+
+## Security Implementation
+
+### Authentication
+- JWT tokens with configurable expiration (default 7 days)
+- Bcrypt password hashing (12 salt rounds)
+- Session-based OAuth flow
+- Token validation on every protected request
+
+### Security Middleware
+- **Helmet**: Security headers
+- **CORS**: Configurable origins (localhost + production)
+- **Rate Limiting**: 100 requests per 15 minutes per IP
+- **Input Validation**: express-validator on all inputs
+- **File Security**: Presigned URLs instead of direct file serving
+
+### Database Security
+- Parameterized queries prevent SQL injection
+- Connection pooling with timeout controls
+- SSL enforcement in production
+- Transaction support for atomic operations
+
+## Environment Configuration
+
+### Required Variables
+```bash
+# Database
+DATABASE_URL=postgresql://user:pass@host:port/db
+
+# Authentication
+JWT_SECRET=your-jwt-secret
+SESSION_SECRET=your-session-secret
+
+# Application
+NODE_ENV=production
+PORT=8000
+FRONTEND_URL=https://your-frontend.com
+
+# OAuth (Optional)
+GOOGLE_CLIENT_ID=your-google-client-id
+GOOGLE_CLIENT_SECRET=your-google-client-secret
+GOOGLE_CALLBACK_URL=https://your-backend.com/api/auth/google/callback
+```
+
+## Development Commands
+
+```bash
+npm install          # Install dependencies
+npm run dev          # Start development server with nodemon
+npm start            # Start production server
+npm run setup-db     # Initialize database schema and seed data
+```
+
+## Deployment
+
+### Render.com Configuration
+- Auto-deployment from GitHub
+- Environment variables in Render dashboard
+- PostgreSQL database auto-provisioned
+- Health check at `/api/health`
+- Build: `npm install`
+- Start: `npm start`
+
+### Database Setup
+1. Run migrations via `npm run setup-db`
+2. Seed data automatically loaded
+3. Admin user created via Google OAuth or manual insertion
+
+## File Handling
+
+Files are handled securely through:
+- Multer middleware for uploads
+- Database storage of file metadata
+- Presigned URL access via JWT tokens
+- No direct static file serving
+- Access control through authentication
+
+## Code Patterns
+
+### Database Queries
+```javascript
+import { query } from '../config/database.js';
+const result = await query('SELECT * FROM table WHERE id = $1', [id]);
+```
+
+### Authentication Middleware
+```javascript
+import { authenticate } from '../middleware/auth.js';
+router.get('/protected', authenticate, (req, res) => {
+  // req.user available here
+});
+```
+
+### Validation Pattern
+```javascript
+import { body, validationResult } from 'express-validator';
+
+router.post('/', [
+  body('field').notEmpty().withMessage('Field is required'),
+], async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ error: 'Validation failed', details: errors.array() });
+  }
+  // Process request
+});
+```
+
+## Error Handling
+
+- Global error middleware catches all errors
+- Detailed error messages in development
+- Generic error messages in production
+- Database connection error handling
+- JWT token error handling
+- Validation error formatting
+
+## Testing & Quality
+
+To test the application:
+1. Ensure database is running and accessible
+2. Set environment variables in `.env`
+3. Run `npm run setup-db` for fresh database
+4. Start development server: `npm run dev`
+5. Test endpoints using Postman or similar tool
+6. Check logs for database query execution and errors
+
+## Key Files to Know
+
+- `server/index.js:18` - Server port configuration
+- `server/config/database.js:39` - Main query function
+- `server/middleware/auth.js:17` - Authentication middleware
+- `server/config/passport.js:41` - Admin email allowlist
+- `db/schema.sql` - Complete database structure
+- `render.yaml` - Deployment configuration
+
+## Important Notes
+
+1. **No TypeScript**: Pure JavaScript with ES modules
+2. **Security First**: All inputs validated, no direct file access
+3. **OAuth Optional**: Google OAuth only works when configured
+4. **Admin Only**: Most endpoints require authentication
+5. **UUID IDs**: All entities use UUID primary keys
+6. **Logging**: Database queries and authentication events logged
+7. **CORS**: Configured for specific frontend origins
+8. **Rate Limiting**: API protection against abuse
+
+This backend is production-ready with comprehensive security, proper error handling, and scalable architecture suitable for a professional portfolio website.

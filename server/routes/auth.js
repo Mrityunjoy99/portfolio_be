@@ -203,7 +203,7 @@ router.get('/google/status', (req, res) => {
   res.json({
     available: !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET),
     clientId: process.env.GOOGLE_CLIENT_ID ? 'configured' : 'missing',
-    callbackUrl: process.env.GOOGLE_CALLBACK_URL || "http://localhost:3001/api/auth/google/callback"
+    callbackUrl: process.env.GOOGLE_CALLBACK_URL || "http://localhost:8000/api/auth/google/callback"
   });
 });
 
