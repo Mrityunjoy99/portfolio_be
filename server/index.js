@@ -30,16 +30,58 @@ const limiter = rateLimit({
 });
 app.use('/api/', limiter);
 
-// CORS configuration
-app.use(cors({
-  origin: [
-    process.env.FRONTEND_URL || 'http://localhost:5173',
+// Enhanced CORS configuration with multiple origin support
+const getAllowedOrigins = () => {
+  const defaultOrigins = [
     'http://localhost:8080',
-    'http://localhost:8081',
-    'https://your-frontend.netlify.app'
-  ],
-  credentials: true
-}));
+  ];
+  
+  // Primary frontend URL from environment
+  if (process.env.FRONTEND_URL) {
+    defaultOrigins.push(process.env.FRONTEND_URL);
+  }
+  
+  // Additional origins from environment (comma-separated)
+  if (process.env.ADDITIONAL_ORIGINS) {
+    const additionalOrigins = process.env.ADDITIONAL_ORIGINS
+      .split(',')
+      .map(origin => origin.trim())
+      .filter(origin => origin.length > 0);
+    defaultOrigins.push(...additionalOrigins);
+  }
+  
+  return [...new Set(defaultOrigins)];
+};
+
+const corsOptions = {
+  origin: (origin, callback) => {
+    const allowedOrigins = getAllowedOrigins();
+    
+    // Allow requests with no origin (mobile apps, Postman, etc.)
+    if (!origin) return callback(null, true);
+    
+    // Check against allowed origins
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+    
+    // Log rejected origins in development for debugging
+    if (process.env.NODE_ENV !== 'production') {
+      console.log(`CORS: Rejected origin: ${origin}`);
+      console.log('Allowed origins:', allowedOrigins);
+    }
+    
+    const err = new Error('Not allowed by CORS');
+    err.status = 403;
+    callback(err);
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Origin', 'X-Requested-With', 'Content-Type', 'Accept', 'Authorization'],
+  optionsSuccessStatus: 200 // For legacy browser support
+};
+
+app.use(cors(corsOptions));
 
 // Body parsing middleware
 app.use(express.json({ limit: '10mb' }));
