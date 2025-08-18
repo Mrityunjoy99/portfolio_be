@@ -1,21 +1,20 @@
 import express from 'express';
 import { query } from '../config/database.js';
+import { getProfile } from '../config/portfolio-data.js';
 
 const router = express.Router();
 
 // Download resume endpoint (public, no auth required)
 router.get('/resume', async (req, res) => {
   try {
-    // Get the profile with resume_url
-    const profileResult = await query(
-      'SELECT resume_url FROM profile ORDER BY created_at DESC LIMIT 1'
-    );
+    // Get the profile with resume_url using new data access layer
+    const profile = await getProfile();
     
-    if (profileResult.rows.length === 0 || !profileResult.rows[0].resume_url) {
+    if (!profile || !profile.resume_url) {
       return res.status(404).json({ error: 'Resume not found' });
     }
     
-    const resumeUrl = profileResult.rows[0].resume_url;
+    const resumeUrl = profile.resume_url;
     
     // Extract filename from the resume URL (e.g., "/uploads/filename.pdf" -> "filename.pdf")
     const filename = resumeUrl.split('/').pop();
@@ -55,16 +54,14 @@ router.get('/resume', async (req, res) => {
 // Download profile image endpoint (public, no auth required)
 router.get('/profile-img', async (req, res) => {
   try {
-    // Get the profile with profile_image_url
-    const profileResult = await query(
-      'SELECT profile_image_url FROM profile ORDER BY created_at DESC LIMIT 1'
-    );
+    // Get the profile with profile_image_url using new data access layer
+    const profile = await getProfile();
     
-    if (profileResult.rows.length === 0 || !profileResult.rows[0].profile_image_url) {
+    if (!profile || !profile.profile_image_url) {
       return res.status(404).json({ error: 'Profile image not found' });
     }
     
-    const profileImageUrl = profileResult.rows[0].profile_image_url;
+    const profileImageUrl = profile.profile_image_url;
     
     // Extract filename from the profile image URL
     const filename = profileImageUrl.split('/').pop();
