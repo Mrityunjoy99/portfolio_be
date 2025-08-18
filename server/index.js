@@ -131,6 +131,7 @@ import contactRoutes from './routes/contact.js';
 import adminRoutes from './routes/admin.js';
 import filesRoutes from './routes/files.js';
 import publicRoutes from './routes/public.js';
+import portfolioRoutes from './routes/portfolio.js';
 
 app.use('/api/auth', authRoutes);
 app.use('/api/profile', profileRoutes);
@@ -140,6 +141,7 @@ app.use('/api/projects', projectsRoutes);
 app.use('/api/contact', contactRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/files', filesRoutes);
+app.use('/api/portfolio', portfolioRoutes);
 app.use('/api', publicRoutes);
 
 // Health check endpoint
