@@ -105,6 +105,18 @@ app.use(passport.session());
 // Logging
 app.use(morgan('combined'));
 
+// Disable caching during development to prevent 304 responses
+if (process.env.NODE_ENV !== 'production') {
+  app.use((req, res, next) => {
+    res.set({
+      'Cache-Control': 'no-cache, no-store, must-revalidate',
+      'Pragma': 'no-cache',
+      'Expires': '0'
+    });
+    next();
+  });
+}
+
 // Note: Files are now served securely from database via presigned URLs
 // Routes: /api/files/secure/:filename?token=<jwt_token>
 // No static file serving needed for uploads

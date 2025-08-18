@@ -1,22 +1,25 @@
 import express from 'express';
 import { body, validationResult } from 'express-validator';
-import { query } from '../config/database.js';
+import { v4 as uuid } from 'uuid';
 import { authenticate, optionalAuth } from '../middleware/auth.js';
+import { 
+  getProfile, 
+  setProfile,
+  getDashboardStats 
+} from '../config/portfolio-data.js';
 
 const router = express.Router();
 
 // Get profile data (public endpoint)
 router.get('/', async (req, res) => {
   try {
-    const result = await query(
-      'SELECT * FROM profile ORDER BY created_at DESC LIMIT 1'
-    );
+    const profile = await getProfile();
 
-    if (result.rows.length === 0) {
+    if (!profile) {
       return res.status(404).json({ error: 'Profile not found' });
     }
 
-    res.json({ profile: result.rows[0] });
+    res.json({ profile });
   } catch (error) {
     console.error('Get profile error:', error);
     res.status(500).json({ error: 'Failed to get profile' });
@@ -94,52 +97,39 @@ router.put('/', [
       });
     }
 
-    const {
-      name,
-      title,
-      tagline,
-      bio,
-      location,
-      email,
-      phone,
-      github_url,
-      leetcode_url,
-      linkedin_url,
-      resume_url,
-      profile_image_url
-    } = req.body;
+    const profileData = {
+      id: uuid(), // Generate new ID if creating, will be preserved if updating
+      name: req.body.name,
+      title: req.body.title,
+      tagline: req.body.tagline,
+      bio: req.body.bio,
+      location: req.body.location,
+      email: req.body.email,
+      phone: req.body.phone,
+      github_url: req.body.github_url,
+      leetcode_url: req.body.leetcode_url,
+      linkedin_url: req.body.linkedin_url,
+      resume_url: req.body.resume_url,
+      profile_image_url: req.body.profile_image_url
+    };
 
     // Check if profile exists
-    const existingProfile = await query('SELECT id FROM profile LIMIT 1');
+    const existingProfile = await getProfile();
 
-    let result;
-    if (existingProfile.rows.length === 0) {
-      // Create new profile
-      result = await query(
-        `INSERT INTO profile (
-          name, title, tagline, bio, location, email, phone,
-          github_url, leetcode_url, linkedin_url, resume_url, profile_image_url
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-        RETURNING *`,
-        [name, title, tagline, bio, location, email, phone, github_url, leetcode_url, linkedin_url, resume_url, profile_image_url]
-      );
+    if (existingProfile) {
+      // Preserve existing ID and created_at
+      profileData.id = existingProfile.id;
+      profileData.created_at = existingProfile.created_at;
     } else {
-      // Update existing profile
-      result = await query(
-        `UPDATE profile SET 
-          name = $1, title = $2, tagline = $3, bio = $4, location = $5,
-          email = $6, phone = $7, github_url = $8, leetcode_url = $9,
-          linkedin_url = $10, resume_url = $11, profile_image_url = $12,
-          updated_at = NOW()
-        WHERE id = $13
-        RETURNING *`,
-        [name, title, tagline, bio, location, email, phone, github_url, leetcode_url, linkedin_url, resume_url, profile_image_url, existingProfile.rows[0].id]
-      );
+      // New profile
+      profileData.created_at = new Date().toISOString();
     }
+
+    await setProfile(profileData);
 
     res.json({ 
       message: 'Profile updated successfully',
-      profile: result.rows[0] 
+      profile: profileData
     });
   } catch (error) {
     console.error('Update profile error:', error);
@@ -150,21 +140,9 @@ router.put('/', [
 // Get profile statistics (admin only)
 router.get('/stats', authenticate, async (req, res) => {
   try {
-    const stats = await Promise.all([
-      query('SELECT COUNT(*) as count FROM skills'),
-      query('SELECT COUNT(*) as count FROM experiences'),
-      query('SELECT COUNT(*) as count FROM projects WHERE status = $1', ['published']),
-      query('SELECT COUNT(*) as count FROM contact_submissions WHERE status = $1', ['new'])
-    ]);
+    const stats = await getDashboardStats();
 
-    res.json({
-      stats: {
-        skills: parseInt(stats[0].rows[0].count),
-        experiences: parseInt(stats[1].rows[0].count),
-        projects: parseInt(stats[2].rows[0].count),
-        unreadMessages: parseInt(stats[3].rows[0].count)
-      }
-    });
+    res.json({ stats });
   } catch (error) {
     console.error('Get profile stats error:', error);
     res.status(500).json({ error: 'Failed to get profile statistics' });

@@ -7,6 +7,7 @@ import { body, validationResult } from 'express-validator';
 import jwt from 'jsonwebtoken';
 import { query } from '../config/database.js';
 import { authenticate } from '../middleware/auth.js';
+import { getDashboardStats } from '../config/portfolio-data.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -62,60 +63,44 @@ const generatePresignedUrl = (filename, expiresInHours = 24, forDownload = false
 // Get admin dashboard stats
 router.get('/dashboard/stats', authenticate, async (req, res) => {
   try {
-    const stats = await Promise.all([
-      // Profile stats
-      query('SELECT COUNT(*) as count FROM profile'),
-      
-      // Skills stats
-      query('SELECT COUNT(*) as count FROM skills'),
-      query('SELECT COUNT(*) as count FROM skills WHERE is_featured = true'),
-      
-      // Experience stats
-      query('SELECT COUNT(*) as count FROM experiences'),
-      query('SELECT COUNT(*) as count FROM achievements'),
-      
-      // Project stats
-      query('SELECT COUNT(*) as count FROM projects'),
-      query('SELECT COUNT(*) as count FROM projects WHERE status = $1', ['published']),
-      query('SELECT COUNT(*) as count FROM projects WHERE is_featured = true'),
-      
-      // Contact stats
+    const portfolioStats = await getDashboardStats();
+    
+    // Get contact stats (these tables remain unchanged)
+    const contactStats = await Promise.all([
       query('SELECT COUNT(*) as count FROM contact_submissions'),
       query('SELECT COUNT(*) as count FROM contact_submissions WHERE status = $1', ['new']),
-      
-      // Recent activity
-      query(`SELECT 'contact' as type, name as title, created_at 
-             FROM contact_submissions 
-             WHERE created_at >= NOW() - INTERVAL '7 days'
-             UNION ALL
-             SELECT 'project' as type, title, created_at 
-             FROM projects 
-             WHERE created_at >= NOW() - INTERVAL '7 days'
-             ORDER BY created_at DESC LIMIT 10`)
     ]);
+
+    // Get recent activity from contact and portfolio data
+    const recentActivity = await query(`
+      SELECT 'contact' as type, name as title, created_at 
+      FROM contact_submissions 
+      WHERE created_at >= NOW() - INTERVAL '7 days'
+      ORDER BY created_at DESC LIMIT 10
+    `);
 
     const dashboardStats = {
       profile: {
-        total: parseInt(stats[0].rows[0].count)
+        total: portfolioStats.totalStats.profile || 0
       },
       skills: {
-        total: parseInt(stats[1].rows[0].count),
-        featured: parseInt(stats[2].rows[0].count)
+        total: portfolioStats.totalStats.skill || 0,
+        featured: portfolioStats.featuredSkills || 0
       },
       experiences: {
-        total: parseInt(stats[3].rows[0].count),
-        achievements: parseInt(stats[4].rows[0].count)
+        total: portfolioStats.totalStats.experience || 0,
+        achievements: portfolioStats.totalAchievements || 0
       },
       projects: {
-        total: parseInt(stats[5].rows[0].count),
-        published: parseInt(stats[6].rows[0].count),
-        featured: parseInt(stats[7].rows[0].count)
+        total: portfolioStats.totalStats.project || 0,
+        published: portfolioStats.publishedProjects || 0,
+        featured: portfolioStats.totalStats.project || 0 // All projects for now, can be refined
       },
       contact: {
-        total: parseInt(stats[8].rows[0].count),
-        unread: parseInt(stats[9].rows[0].count)
+        total: parseInt(contactStats[0].rows[0].count),
+        unread: parseInt(contactStats[1].rows[0].count)
       },
-      recentActivity: stats[10].rows
+      recentActivity: recentActivity.rows
     };
 
     res.json({ stats: dashboardStats });
@@ -347,17 +332,29 @@ router.get('/health', authenticate, async (req, res) => {
 // Export data (backup)
 router.get('/export', authenticate, async (req, res) => {
   try {
-    const tables = ['profile', 'skills', 'experiences', 'achievements', 'projects', 'project_technologies', 'project_images'];
-    const exportData = {};
+    // Export from the new portfolio_data table
+    const portfolioResult = await query(`SELECT * FROM portfolio_data WHERE is_active = TRUE ORDER BY type, created_at ASC`);
+    
+    // Also export other unchanged tables
+    const otherTables = ['admin_users', 'contact_submissions', 'uploads', 'admin_settings'];
+    const exportData = {
+      portfolio_data: portfolioResult.rows
+    };
 
-    for (const table of tables) {
-      const result = await query(`SELECT * FROM ${table} ORDER BY created_at ASC`);
-      exportData[table] = result.rows;
+    for (const table of otherTables) {
+      try {
+        const result = await query(`SELECT * FROM ${table} ORDER BY created_at ASC`);
+        exportData[table] = result.rows;
+      } catch (error) {
+        // Table might not exist, skip it
+        console.log(`Skipping table ${table}: ${error.message}`);
+      }
     }
 
     res.json({
       exportedAt: new Date().toISOString(),
-      version: '1.0',
+      version: '2.0', // Updated version for new schema
+      schema: 'key-value',
       data: exportData
     });
   } catch (error) {

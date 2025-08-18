@@ -1,33 +1,24 @@
 import express from 'express';
 import { body, validationResult } from 'express-validator';
-import { query, transaction } from '../config/database.js';
+import { v4 as uuid } from 'uuid';
 import { authenticate } from '../middleware/auth.js';
+import { 
+  getAllExperiences,
+  getExperienceById,
+  createExperience,
+  updateExperience,
+  deleteExperience,
+  createAchievement,
+  updateAchievement,
+  deleteAchievement
+} from '../config/portfolio-data.js';
 
 const router = express.Router();
 
 // Get all experiences with achievements (public endpoint)
 router.get('/', async (req, res) => {
   try {
-    // Get experiences
-    const experiencesResult = await query(
-      'SELECT * FROM experiences ORDER BY sort_order ASC, start_date DESC'
-    );
-
-    // Get achievements for each experience
-    const experiences = await Promise.all(
-      experiencesResult.rows.map(async (experience) => {
-        const achievementsResult = await query(
-          'SELECT * FROM achievements WHERE experience_id = $1 ORDER BY sort_order ASC',
-          [experience.id]
-        );
-        
-        return {
-          ...experience,
-          achievements: achievementsResult.rows
-        };
-      })
-    );
-
+    const experiences = await getAllExperiences();
     res.json({ experiences });
   } catch (error) {
     console.error('Get experiences error:', error);
@@ -53,15 +44,10 @@ router.put('/order/bulk', [
 
     const { experiences } = req.body;
 
-    // Update each experience's sort order
-    const updatePromises = experiences.map(experience => 
-      query(
-        'UPDATE experiences SET sort_order = $1 WHERE id = $2',
-        [experience.sort_order, experience.id]
-      )
-    );
-
-    await Promise.all(updatePromises);
+    // Update each experience's sort order using the new data access layer
+    for (const experience of experiences) {
+      await updateExperience(experience.id, { sort_order: experience.sort_order });
+    }
 
     res.json({ message: 'Experience order updated successfully' });
   } catch (error) {
@@ -75,26 +61,17 @@ router.get('/:id', async (req, res) => {
   try {
     const { id } = req.params;
     
-    const experienceResult = await query(
-      'SELECT * FROM experiences WHERE id = $1',
-      [id]
-    );
+    const experience = await getExperienceById(id);
 
-    if (experienceResult.rows.length === 0) {
+    if (!experience) {
       return res.status(404).json({ error: 'Experience not found' });
     }
 
-    const achievementsResult = await query(
-      'SELECT * FROM achievements WHERE experience_id = $1 ORDER BY sort_order ASC',
-      [id]
-    );
+    // Get achievements for this experience (they're already included in getAllExperiences, but not in getExperienceById)
+    const allExperiences = await getAllExperiences();
+    const fullExperience = allExperiences.find(exp => exp.id === id);
 
-    const experience = {
-      ...experienceResult.rows[0],
-      achievements: achievementsResult.rows
-    };
-
-    res.json({ experience });
+    res.json({ experience: fullExperience || experience });
   } catch (error) {
     console.error('Get experience error:', error);
     res.status(500).json({ error: 'Failed to get experience' });
@@ -127,47 +104,45 @@ router.post('/', [
       });
     }
 
-    const {
-      company,
-      position,
-      start_date,
-      end_date,
-      location,
-      company_logo_url,
-      description,
-      sort_order = 0,
-      achievements = []
-    } = req.body;
+    const experienceId = uuid();
+    
+    const experienceData = {
+      id: experienceId,
+      company: req.body.company,
+      position: req.body.position,
+      start_date: req.body.start_date,
+      end_date: req.body.end_date,
+      location: req.body.location,
+      company_logo_url: req.body.company_logo_url,
+      description: req.body.description,
+      sort_order: req.body.sort_order || 0
+    };
 
-    const result = await transaction(async (client) => {
-      // Create experience
-      const experienceResult = await client.query(
-        `INSERT INTO experiences (company, position, start_date, end_date, location, company_logo_url, description, sort_order)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-         RETURNING *`,
-        [company, position, start_date, end_date, location, company_logo_url, description, sort_order]
-      );
+    // Create experience
+    await createExperience(experienceData);
 
-      const experience = experienceResult.rows[0];
-
-      // Create achievements
-      const createdAchievements = [];
-      for (let i = 0; i < achievements.length; i++) {
-        const achievement = achievements[i];
-        const achievementResult = await client.query(
-          `INSERT INTO achievements (experience_id, description, icon_name, metrics, sort_order)
-           VALUES ($1, $2, $3, $4, $5)
-           RETURNING *`,
-          [experience.id, achievement.description, achievement.icon_name, achievement.metrics, achievement.sort_order || i]
-        );
-        createdAchievements.push(achievementResult.rows[0]);
-      }
-
-      return {
-        ...experience,
-        achievements: createdAchievements
+    // Create achievements
+    const createdAchievements = [];
+    const achievements = req.body.achievements || [];
+    
+    for (let i = 0; i < achievements.length; i++) {
+      const achievementData = {
+        id: uuid(),
+        experience_id: experienceId,
+        description: achievements[i].description,
+        icon_name: achievements[i].icon_name,
+        metrics: achievements[i].metrics,
+        sort_order: achievements[i].sort_order || i
       };
-    });
+      
+      await createAchievement(achievementData);
+      createdAchievements.push(achievementData);
+    }
+
+    const result = {
+      ...experienceData,
+      achievements: createdAchievements
+    };
 
     res.status(201).json({ 
       message: 'Experience created successfully',
@@ -207,61 +182,68 @@ router.put('/:id', [
     }
 
     const { id } = req.params;
-    const {
-      company,
-      position,
-      start_date,
-      end_date,
-      location,
-      company_logo_url,
-      description,
-      sort_order,
-      achievements = []
-    } = req.body;
-
-    const result = await transaction(async (client) => {
+    
+    try {
       // Update experience
-      const experienceResult = await client.query(
-        `UPDATE experiences SET 
-          company = $1, position = $2, start_date = $3, end_date = $4,
-          location = $5, company_logo_url = $6, description = $7, sort_order = $8
-         WHERE id = $9
-         RETURNING *`,
-        [company, position, start_date, end_date, location, company_logo_url, description, sort_order, id]
-      );
+      const experienceData = {
+        company: req.body.company,
+        position: req.body.position,
+        start_date: req.body.start_date,
+        end_date: req.body.end_date,
+        location: req.body.location,
+        company_logo_url: req.body.company_logo_url,
+        description: req.body.description,
+        sort_order: req.body.sort_order
+      };
 
-      if (experienceResult.rows.length === 0) {
-        throw new Error('Experience not found');
-      }
+      await updateExperience(id, experienceData);
 
-      const experience = experienceResult.rows[0];
-
+      // Handle achievements update
+      const achievements = req.body.achievements || [];
+      
+      // Get current achievements to delete them
+      const allExperiences = await getAllExperiences();
+      const currentExperience = allExperiences.find(exp => exp.id === id);
+      
       // Delete existing achievements
-      await client.query('DELETE FROM achievements WHERE experience_id = $1', [id]);
+      if (currentExperience && currentExperience.achievements) {
+        for (const achievement of currentExperience.achievements) {
+          await deleteAchievement(achievement.id);
+        }
+      }
 
       // Create new achievements
       const createdAchievements = [];
       for (let i = 0; i < achievements.length; i++) {
-        const achievement = achievements[i];
-        const achievementResult = await client.query(
-          `INSERT INTO achievements (experience_id, description, icon_name, metrics, sort_order)
-           VALUES ($1, $2, $3, $4, $5)
-           RETURNING *`,
-          [experience.id, achievement.description, achievement.icon_name, achievement.metrics, achievement.sort_order || i]
-        );
-        createdAchievements.push(achievementResult.rows[0]);
+        const achievementData = {
+          id: uuid(),
+          experience_id: id,
+          description: achievements[i].description,
+          icon_name: achievements[i].icon_name,
+          metrics: achievements[i].metrics,
+          sort_order: achievements[i].sort_order || i
+        };
+        
+        await createAchievement(achievementData);
+        createdAchievements.push(achievementData);
       }
 
-      return {
-        ...experience,
+      const result = {
+        id,
+        ...experienceData,
         achievements: createdAchievements
       };
-    });
 
-    res.json({ 
-      message: 'Experience updated successfully',
-      experience: result 
-    });
+      res.json({ 
+        message: 'Experience updated successfully',
+        experience: result 
+      });
+    } catch (error) {
+      if (error.message === 'Experience not found') {
+        return res.status(404).json({ error: 'Experience not found' });
+      }
+      throw error;
+    }
   } catch (error) {
     console.error('Update experience error:', error);
     if (error.message === 'Experience not found') {
@@ -277,10 +259,7 @@ router.delete('/:id', authenticate, async (req, res) => {
   try {
     const { id } = req.params;
 
-    const result = await query(
-      'DELETE FROM experiences WHERE id = $1 RETURNING *',
-      [id]
-    );
+    const result = await deleteExperience(id);
 
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Experience not found' });
@@ -288,7 +267,7 @@ router.delete('/:id', authenticate, async (req, res) => {
 
     res.json({ 
       message: 'Experience deleted successfully',
-      experience: result.rows[0] 
+      experience: result.rows[0].value
     });
   } catch (error) {
     console.error('Delete experience error:', error);
