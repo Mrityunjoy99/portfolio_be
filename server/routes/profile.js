@@ -62,20 +62,24 @@ router.put('/', [
   }),
   body('resume_url').optional().custom((value) => {
     if (!value || value === null || value === '') return true;
+    // Accept relative paths starting with /uploads/ or full URLs
+    if (value.startsWith('/uploads/')) return true;
     try {
       new URL(value);
       return true;
     } catch {
-      throw new Error('Resume URL must be valid');
+      throw new Error('Resume URL must be valid URL or relative path');
     }
   }),
   body('profile_image_url').optional().custom((value) => {
     if (!value || value === null || value === '') return true;
+    // Accept relative paths starting with /uploads/ or full URLs
+    if (value.startsWith('/uploads/')) return true;
     try {
       new URL(value);
       return true;
     } catch {
-      throw new Error('Profile image URL must be valid');
+      throw new Error('Profile image URL must be valid URL or relative path');
     }
   })
 ], async (req, res) => {
