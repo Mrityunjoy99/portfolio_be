@@ -1,4 +1,8 @@
-# CLAUDE.md - Portfolio Backend Context
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Portfolio Backend Context
 
 ## Project Overview
 
@@ -135,6 +139,17 @@ npm start            # Start production server
 npm run setup-db     # Initialize database schema and seed data
 ```
 
+### Development Workflow
+1. Copy `.env.example` to `.env` and configure environment variables
+2. Run `npm run setup-db` to initialize the database
+3. Start development with `npm run dev`
+4. Test endpoints manually using tools like Postman or curl
+5. Check server logs for database queries and authentication events
+
+### Local Development URLs
+- Backend API: `http://localhost:8000`
+- Health check: `http://localhost:8000/api/health`
+
 ## Deployment
 
 ### Render.com Configuration
@@ -201,6 +216,8 @@ router.post('/', [
 
 ## Testing & Quality
 
+**Note**: This project does not have automated tests. Testing is done manually.
+
 To test the application:
 1. Ensure database is running and accessible
 2. Set environment variables in `.env`
@@ -208,6 +225,13 @@ To test the application:
 4. Start development server: `npm run dev`
 5. Test endpoints using Postman or similar tool
 6. Check logs for database query execution and errors
+
+### Manual Testing Approach
+- Use Postman or curl to test API endpoints
+- Verify authentication flows with JWT tokens
+- Test file upload functionality
+- Check database state after operations
+- Monitor server logs for errors and performance
 
 ## Key Files to Know
 
@@ -221,12 +245,38 @@ To test the application:
 ## Important Notes
 
 1. **No TypeScript**: Pure JavaScript with ES modules
-2. **Security First**: All inputs validated, no direct file access
-3. **OAuth Optional**: Google OAuth only works when configured
-4. **Admin Only**: Most endpoints require authentication
-5. **UUID IDs**: All entities use UUID primary keys
-6. **Logging**: Database queries and authentication events logged
-7. **CORS**: Configured for specific frontend origins
-8. **Rate Limiting**: API protection against abuse
+2. **No Testing Framework**: Manual testing only - no automated tests
+3. **Security First**: All inputs validated, no direct file access
+4. **OAuth Optional**: Google OAuth only works when configured
+5. **Admin Only**: Most endpoints require authentication
+6. **UUID IDs**: All entities use UUID primary keys
+7. **Logging**: Database queries and authentication events logged
+8. **CORS**: Configured for specific frontend origins
+9. **Rate Limiting**: API protection against abuse (100 requests per 15 minutes)
+10. **ES Modules**: Uses modern ES module syntax (`import/export`)
+
+## Troubleshooting Common Issues
+
+### Database Connection Issues
+- Verify `DATABASE_URL` in `.env` file
+- Ensure PostgreSQL is running locally
+- Check network connectivity for remote databases
+- Run `npm run setup-db` if tables are missing
+
+### Authentication Problems
+- Verify `JWT_SECRET` is set in environment
+- Check token expiration (`JWT_EXPIRES_IN`)
+- Ensure admin user exists in database
+- For OAuth: verify Google Client ID/Secret configuration
+
+### CORS Errors
+- Update `FRONTEND_URL` in environment variables
+- Check origin allowlist in server configuration
+- Verify request headers include proper authentication
+
+### File Upload Issues
+- Check multer configuration and file size limits
+- Verify proper authentication for file endpoints
+- Ensure database has proper file metadata tables
 
 This backend is production-ready with comprehensive security, proper error handling, and scalable architecture suitable for a professional portfolio website.
