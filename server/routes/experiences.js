@@ -6,11 +6,10 @@ import {
   getAllExperiences,
   getExperienceById,
   createExperience,
-  updateExperience,
+  updateExperienceWithAchievements,
+  updateExperiencesOrder,
   deleteExperience,
-  createAchievement,
-  updateAchievement,
-  deleteAchievement
+  createAchievement
 } from '../config/portfolio-data.js';
 
 const router = express.Router();
@@ -44,10 +43,8 @@ router.put('/order/bulk', [
 
     const { experiences } = req.body;
 
-    // Update each experience's sort order using the new data access layer
-    for (const experience of experiences) {
-      await updateExperience(experience.id, { sort_order: experience.sort_order });
-    }
+    // Atomically update all experience sort orders in single transaction
+    await updateExperiencesOrder(experiences);
 
     res.json({ message: 'Experience order updated successfully' });
   } catch (error) {
@@ -184,7 +181,7 @@ router.put('/:id', [
     const { id } = req.params;
     
     try {
-      // Update experience
+      // Update experience and achievements atomically
       const experienceData = {
         company: req.body.company,
         position: req.body.position,
@@ -196,43 +193,10 @@ router.put('/:id', [
         sort_order: req.body.sort_order
       };
 
-      await updateExperience(id, experienceData);
-
-      // Handle achievements update
       const achievements = req.body.achievements || [];
       
-      // Get current achievements to delete them
-      const allExperiences = await getAllExperiences();
-      const currentExperience = allExperiences.find(exp => exp.id === id);
-      
-      // Delete existing achievements
-      if (currentExperience && currentExperience.achievements) {
-        for (const achievement of currentExperience.achievements) {
-          await deleteAchievement(achievement.id);
-        }
-      }
-
-      // Create new achievements
-      const createdAchievements = [];
-      for (let i = 0; i < achievements.length; i++) {
-        const achievementData = {
-          id: uuid(),
-          experience_id: id,
-          description: achievements[i].description,
-          icon_name: achievements[i].icon_name,
-          metrics: achievements[i].metrics,
-          sort_order: achievements[i].sort_order || i
-        };
-        
-        await createAchievement(achievementData);
-        createdAchievements.push(achievementData);
-      }
-
-      const result = {
-        id,
-        ...experienceData,
-        achievements: createdAchievements
-      };
+      // Single atomic operation that prevents race conditions
+      const result = await updateExperienceWithAchievements(id, experienceData, achievements);
 
       res.json({ 
         message: 'Experience updated successfully',

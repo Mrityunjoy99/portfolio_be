@@ -7,6 +7,7 @@
  */
 
 import { query, transaction } from './database.js';
+import { v4 as uuid } from 'uuid';
 
 // ============================================================================
 // Core Helper Functions
@@ -257,6 +258,77 @@ export const updateExperience = async (id, experienceData) => {
     id, // Preserve ID
     created_at: currentExperience.created_at,
     updated_at: new Date().toISOString()
+  });
+};
+
+export const updateExperienceWithAchievements = async (id, experienceData, achievements = []) => {
+  return await transaction(async (client) => {
+    const experienceKey = `experience:${id}`;
+    const currentExperience = await getPortfolioItem(experienceKey);
+    
+    if (!currentExperience) {
+      throw new Error('Experience not found');
+    }
+    
+    // Update experience in single atomic operation
+    await client.query(
+      'UPDATE portfolio_data SET is_active = FALSE WHERE key = $1 AND is_active = TRUE',
+      [experienceKey]
+    );
+    
+    const expVersionResult = await client.query(
+      'SELECT COALESCE(MAX(version), 0) + 1 as next_version FROM portfolio_data WHERE key = $1',
+      [experienceKey]
+    );
+    
+    await client.query(
+      `INSERT INTO portfolio_data (key, type, value, version, is_active) 
+       VALUES ($1, $2, $3, $4, TRUE)`,
+      [experienceKey, 'experience', JSON.stringify({
+        ...currentExperience,
+        ...experienceData,
+        id,
+        created_at: currentExperience.created_at,
+        updated_at: new Date().toISOString()
+      }), expVersionResult.rows[0].next_version]
+    );
+    
+    // Atomically delete ALL existing achievements for this experience
+    await client.query(
+      `UPDATE portfolio_data SET is_active = FALSE 
+       WHERE type = 'achievement' AND value->>'experience_id' = $1 AND is_active = TRUE`,
+      [id]
+    );
+    
+    // Atomically create ALL new achievements
+    const createdAchievements = [];
+    for (let i = 0; i < achievements.length; i++) {
+      const achievementKey = `achievement:${achievements[i].id || uuid()}`;
+      const achievementData = {
+        id: achievements[i].id || uuid(),
+        experience_id: id,
+        description: achievements[i].description,
+        icon_name: achievements[i].icon_name,
+        metrics: achievements[i].metrics,
+        sort_order: achievements[i].sort_order || i,
+        created_at: new Date().toISOString()
+      };
+      
+      await client.query(
+        `INSERT INTO portfolio_data (key, type, value, version, is_active) 
+         VALUES ($1, $2, $3, 1, TRUE)`,
+        [achievementKey, 'achievement', JSON.stringify(achievementData)]
+      );
+      
+      createdAchievements.push(achievementData);
+    }
+    
+    return {
+      ...currentExperience,
+      ...experienceData,
+      id,
+      achievements: createdAchievements
+    };
   });
 };
 
@@ -559,7 +631,7 @@ export const deleteProjectImage = async (id) => {
 };
 
 /**
- * BULK OPERATIONS
+ * BULK OPERATIONS - All operations wrapped in single transactions to prevent race conditions
  */
 export const updateSkillsOrder = async (skillsWithOrder) => {
   return await transaction(async (client) => {
@@ -583,6 +655,68 @@ export const updateSkillsOrder = async (skillsWithOrder) => {
            VALUES ($1, $2, $3, $4, TRUE)`,
           [key, 'skill', JSON.stringify({
             ...currentSkill,
+            sort_order,
+            updated_at: new Date().toISOString()
+          }), nextVersion.rows[0].next_version]
+        );
+      }
+    }
+  });
+};
+
+export const updateExperiencesOrder = async (experiencesWithOrder) => {
+  return await transaction(async (client) => {
+    for (const { id, sort_order } of experiencesWithOrder) {
+      const key = `experience:${id}`;
+      const currentExperience = await getPortfolioItem(key);
+      
+      if (currentExperience) {
+        await client.query(
+          'UPDATE portfolio_data SET is_active = FALSE WHERE key = $1 AND is_active = TRUE',
+          [key]
+        );
+        
+        const nextVersion = await client.query(
+          'SELECT COALESCE(MAX(version), 0) + 1 as next_version FROM portfolio_data WHERE key = $1',
+          [key]
+        );
+        
+        await client.query(
+          `INSERT INTO portfolio_data (key, type, value, version, is_active) 
+           VALUES ($1, $2, $3, $4, TRUE)`,
+          [key, 'experience', JSON.stringify({
+            ...currentExperience,
+            sort_order,
+            updated_at: new Date().toISOString()
+          }), nextVersion.rows[0].next_version]
+        );
+      }
+    }
+  });
+};
+
+export const updateProjectsOrder = async (projectsWithOrder) => {
+  return await transaction(async (client) => {
+    for (const { id, sort_order } of projectsWithOrder) {
+      const key = `project:${id}`;
+      const currentProject = await getPortfolioItem(key);
+      
+      if (currentProject) {
+        await client.query(
+          'UPDATE portfolio_data SET is_active = FALSE WHERE key = $1 AND is_active = TRUE',
+          [key]
+        );
+        
+        const nextVersion = await client.query(
+          'SELECT COALESCE(MAX(version), 0) + 1 as next_version FROM portfolio_data WHERE key = $1',
+          [key]
+        );
+        
+        await client.query(
+          `INSERT INTO portfolio_data (key, type, value, version, is_active) 
+           VALUES ($1, $2, $3, $4, TRUE)`,
+          [key, 'project', JSON.stringify({
+            ...currentProject,
             sort_order,
             updated_at: new Date().toISOString()
           }), nextVersion.rows[0].next_version]

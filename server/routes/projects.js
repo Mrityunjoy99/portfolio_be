@@ -4,12 +4,11 @@ import { v4 as uuid } from 'uuid';
 import { authenticate } from '../middleware/auth.js';
 import { 
   getAllProjects,
-  getProjectsByStatus,
-  getFeaturedProjects,
   getProjectById,
   getProjectBySlug,
   createProject,
   updateProject,
+  updateProjectsOrder,
   deleteProject
 } from '../config/portfolio-data.js';
 
@@ -58,10 +57,8 @@ router.put('/order/bulk', [
 
     const { projects } = req.body;
 
-    // Update each project's sort order using the new data access layer
-    for (const project of projects) {
-      await updateProject(project.id, { sort_order: project.sort_order });
-    }
+    // Atomically update all project sort orders in single transaction
+    await updateProjectsOrder(projects);
 
     res.json({ message: 'Project order updated successfully' });
   } catch (error) {
