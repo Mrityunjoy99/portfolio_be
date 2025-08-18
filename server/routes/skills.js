@@ -28,7 +28,7 @@ router.get('/', async (req, res) => {
       queryText += ' WHERE ' + conditions.join(' AND ');
     }
 
-    queryText += ' ORDER BY sort_order ASC, name ASC';
+    queryText += ' ORDER BY proficiency DESC NULLS LAST, sort_order ASC, name ASC';
 
     const result = await query(queryText, queryParams);
 
@@ -86,6 +86,43 @@ router.put('/order/bulk', [
   } catch (error) {
     console.error('Bulk update skill order error:', error);
     res.status(500).json({ error: 'Failed to update skill order' });
+  }
+});
+
+// Update skill order within proficiency level (admin only)
+router.put('/order/proficiency', [
+  authenticate,
+  body('skills').isArray().withMessage('Skills must be an array'),
+  body('skills.*.id').notEmpty().withMessage('Skill ID is required'),
+  body('skills.*.sort_order').isInt({ min: 0 }).withMessage('Sort order must be a non-negative integer'),
+  body('skills.*.proficiency').optional().isInt({ min: 1, max: 5 }).withMessage('Proficiency must be between 1 and 5')
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ 
+        error: 'Validation failed', 
+        details: errors.array() 
+      });
+    }
+
+    const { skills } = req.body;
+
+    // Update each skill's sort order (proficiency level can only be changed individually)
+    // This endpoint only allows rearranging within the same proficiency level
+    const updatePromises = skills.map(skill => 
+      query(
+        'UPDATE skills SET sort_order = $1 WHERE id = $2 AND (proficiency = $3 OR $3 IS NULL)',
+        [skill.sort_order, skill.id, skill.proficiency || null]
+      )
+    );
+
+    await Promise.all(updatePromises);
+
+    res.json({ message: 'Skill order within proficiency levels updated successfully' });
+  } catch (error) {
+    console.error('Update skill order within proficiency error:', error);
+    res.status(500).json({ error: 'Failed to update skill order within proficiency levels' });
   }
 });
 
