@@ -1,7 +1,5 @@
 import express from 'express';
-import { 
-  getAllPortfolioData
-} from '../config/portfolio-data.js';
+import { getCachedPortfolioData } from '../config/portfolio-cache.js';
 
 const router = express.Router();
 
@@ -27,29 +25,8 @@ router.get('/data', async (req, res) => {
       });
     }
     
-    // Fetch all portfolio data with optimized single query
-    const { profile, skills, experiences, projects } = await getAllPortfolioData();
-
-    // Sort skills by proficiency and sort order
-    skills.sort((a, b) => {
-      // First by proficiency (descending, nulls last)
-      if (b.proficiency !== a.proficiency) {
-        if (a.proficiency === null) return 1;
-        if (b.proficiency === null) return -1;
-        return b.proficiency - a.proficiency;
-      }
-      // Then by sort_order (ascending)
-      if (a.sort_order !== b.sort_order) return a.sort_order - b.sort_order;
-      // Finally by name (ascending)
-      return a.name.localeCompare(b.name);
-    });
-
-    const portfolioData = {
-      profile,
-      skills,
-      experiences,
-      projects
-    };
+    // Fetch portfolio data from cache (with stale-while-revalidate pattern)
+    const portfolioData = await getCachedPortfolioData();
 
     res.json(portfolioData);
   } catch (error) {

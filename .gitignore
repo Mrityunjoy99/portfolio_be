@@ -4,3 +4,4 @@
 reports/
 .vercel
 tmp/
+!tmp/cache/

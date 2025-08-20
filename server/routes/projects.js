@@ -11,6 +11,7 @@ import {
   updateProjectsOrder,
   deleteProject
 } from '../config/portfolio-data.js';
+import { invalidateCache } from '../config/portfolio-cache.js';
 
 const router = express.Router();
 
@@ -59,6 +60,9 @@ router.put('/order/bulk', [
 
     // Atomically update all project sort orders in single transaction
     await updateProjectsOrder(projects);
+
+    // Invalidate cache after bulk order update
+    await invalidateCache();
 
     res.json({ message: 'Project order updated successfully' });
   } catch (error) {
@@ -180,6 +184,9 @@ router.post('/', [
 
     const result = await createProject(projectData);
 
+    // Invalidate cache after project creation
+    await invalidateCache();
+
     res.status(201).json({ 
       message: 'Project created successfully',
       project: result 
@@ -268,6 +275,9 @@ router.patch('/:id', [
       }
 
       const result = await updateProject(id, req.body);
+
+      // Invalidate cache after project update
+      await invalidateCache();
 
       res.json({ 
         message: 'Project updated successfully',
@@ -366,6 +376,9 @@ router.put('/:id', [
 
       const result = await updateProject(id, req.body);
 
+      // Invalidate cache after project update
+      await invalidateCache();
+
       res.json({ 
         message: 'Project updated successfully',
         project: result 
@@ -398,6 +411,9 @@ router.delete('/:id', authenticate, async (req, res) => {
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Project not found' });
     }
+
+    // Invalidate cache after project deletion
+    await invalidateCache();
 
     res.json({ 
       message: 'Project deleted successfully',

@@ -8,6 +8,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import passport from './config/passport.js';
+import { initializeCache, shutdownCache } from './config/portfolio-cache.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -168,10 +169,73 @@ app.use((req, res) => {
 });
 
 // Start server
-app.listen(PORT, () => {
+const server = app.listen(PORT, async () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`📊 Environment: ${process.env.NODE_ENV}`);
   console.log(`🔗 API URL: http://localhost:${PORT}/api`);
+  
+  // Initialize portfolio cache
+  try {
+    await initializeCache();
+    console.log('✅ Portfolio cache initialized');
+  } catch (error) {
+    console.error('❌ Failed to initialize portfolio cache:', error);
+    // Continue running even if cache fails to initialize
+  }
+});
+
+// Graceful shutdown handling
+let shutdownInProgress = false;
+
+const gracefulShutdown = (signal) => {
+  if (shutdownInProgress) {
+    console.log(`\n🔴 Received ${signal} again, force exiting...`);
+    process.exit(1);
+  }
+  
+  shutdownInProgress = true;
+  console.log(`\n🛑 Received ${signal}, starting graceful shutdown...`);
+  
+  // Close the HTTP server first
+  server.close((err) => {
+    if (err) {
+      console.error('❌ Error closing HTTP server:', err);
+      process.exit(1);
+    }
+    
+    console.log('✅ HTTP server closed');
+    
+    // Shutdown cache
+    try {
+      shutdownCache();
+      console.log('✅ Graceful shutdown complete');
+      process.exit(0);
+    } catch (error) {
+      console.error('❌ Error during cache shutdown:', error);
+      process.exit(1);
+    }
+  });
+  
+  // Force exit after 10 seconds
+  setTimeout(() => {
+    console.log('🔴 Force exiting after 10 seconds...');
+    process.exit(1);
+  }, 10000);
+};
+
+// Handle process termination signals
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
+// Handle unexpected exits
+process.on('uncaughtException', (error) => {
+  console.error('💥 Uncaught Exception:', error);
+  gracefulShutdown('uncaughtException');
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('💥 Unhandled Rejection at:', promise, 'reason:', reason);
+  gracefulShutdown('unhandledRejection');
 });
 
 export default app;

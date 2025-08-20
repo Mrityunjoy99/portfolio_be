@@ -7,6 +7,7 @@ import {
   setProfile,
   getDashboardStats 
 } from '../config/portfolio-data.js';
+import { invalidateCache } from '../config/portfolio-cache.js';
 
 const router = express.Router();
 
@@ -126,6 +127,9 @@ router.put('/', [
     }
 
     await setProfile(profileData);
+
+    // Invalidate cache after profile update
+    await invalidateCache();
 
     res.json({ 
       message: 'Profile updated successfully',

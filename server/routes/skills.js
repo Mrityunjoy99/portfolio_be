@@ -12,6 +12,7 @@ import {
   deleteSkill,
   updateSkillsOrder
 } from '../config/portfolio-data.js';
+import { invalidateCache } from '../config/portfolio-cache.js';
 
 const router = express.Router();
 
@@ -83,6 +84,9 @@ router.put('/order/bulk', [
     // Update skills order using the new data access layer
     await updateSkillsOrder(skills);
 
+    // Invalidate cache after bulk order update
+    await invalidateCache();
+
     res.json({ message: 'Skill order updated successfully' });
   } catch (error) {
     console.error('Bulk update skill order error:', error);
@@ -112,6 +116,9 @@ router.put('/order/proficiency', [
     // Update skills order using the new data access layer
     // Note: The proficiency validation would need to be done at the application level
     await updateSkillsOrder(skills);
+
+    // Invalidate cache after proficiency order update
+    await invalidateCache();
 
     res.json({ message: 'Skill order within proficiency levels updated successfully' });
   } catch (error) {
@@ -171,6 +178,9 @@ router.post('/', [
 
     await createSkill(skillData);
 
+    // Invalidate cache after skill creation
+    await invalidateCache();
+
     res.status(201).json({ 
       message: 'Skill created successfully',
       skill: skillData
@@ -206,6 +216,9 @@ router.put('/:id', [
     try {
       const updatedSkill = await updateSkill(id, req.body);
 
+      // Invalidate cache after skill update
+      await invalidateCache();
+
       res.json({ 
         message: 'Skill updated successfully',
         skill: updatedSkill.value
@@ -232,6 +245,9 @@ router.delete('/:id', authenticate, async (req, res) => {
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Skill not found' });
     }
+
+    // Invalidate cache after skill deletion
+    await invalidateCache();
 
     res.json({ 
       message: 'Skill deleted successfully',

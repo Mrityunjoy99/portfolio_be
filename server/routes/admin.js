@@ -8,6 +8,7 @@ import jwt from 'jsonwebtoken';
 import { query } from '../config/database.js';
 import { authenticate } from '../middleware/auth.js';
 import { getDashboardStats } from '../config/portfolio-data.js';
+import { getCacheStatus, clearCache, invalidateCache, getAllCacheKeys } from '../config/portfolio-cache.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -107,6 +108,56 @@ router.get('/dashboard/stats', authenticate, async (req, res) => {
   } catch (error) {
     console.error('Get dashboard stats error:', error);
     res.status(500).json({ error: 'Failed to get dashboard statistics' });
+  }
+});
+
+// Cache management endpoints
+
+// Get cache status and statistics
+router.get('/cache/status', authenticate, async (req, res) => {
+  try {
+    const cacheStatus = getCacheStatus();
+    res.json({ cache: cacheStatus });
+  } catch (error) {
+    console.error('Get cache status error:', error);
+    res.status(500).json({ error: 'Failed to get cache status' });
+  }
+});
+
+// Clear cache
+router.post('/cache/clear', authenticate, async (req, res) => {
+  try {
+    clearCache();
+    res.json({ message: 'Cache cleared successfully' });
+  } catch (error) {
+    console.error('Clear cache error:', error);
+    res.status(500).json({ error: 'Failed to clear cache' });
+  }
+});
+
+// Invalidate and refresh cache
+router.post('/cache/refresh', authenticate, async (req, res) => {
+  try {
+    await invalidateCache();
+    res.json({ message: 'Cache refreshed successfully' });
+  } catch (error) {
+    console.error('Refresh cache error:', error);
+    res.status(500).json({ error: 'Failed to refresh cache' });
+  }
+});
+
+// Get all cache keys and values
+router.get('/cache/keys', authenticate, async (req, res) => {
+  try {
+    const cacheKeys = await getAllCacheKeys();
+    res.json({ 
+      keys: Object.keys(cacheKeys),
+      data: cacheKeys,
+      count: Object.keys(cacheKeys).length 
+    });
+  } catch (error) {
+    console.error('Get cache keys error:', error);
+    res.status(500).json({ error: 'Failed to get cache keys' });
   }
 });
 

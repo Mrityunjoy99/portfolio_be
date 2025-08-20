@@ -11,6 +11,7 @@ import {
   deleteExperience,
   createAchievement
 } from '../config/portfolio-data.js';
+import { invalidateCache } from '../config/portfolio-cache.js';
 
 const router = express.Router();
 
@@ -45,6 +46,9 @@ router.put('/order/bulk', [
 
     // Atomically update all experience sort orders in single transaction
     await updateExperiencesOrder(experiences);
+
+    // Invalidate entire cache after bulk order update
+    await invalidateCache();
 
     res.json({ message: 'Experience order updated successfully' });
   } catch (error) {
@@ -141,6 +145,9 @@ router.post('/', [
       achievements: createdAchievements
     };
 
+    // Invalidate cache after experience creation
+    await invalidateCache();
+
     res.status(201).json({ 
       message: 'Experience created successfully',
       experience: result 
@@ -198,6 +205,9 @@ router.put('/:id', [
       // Single atomic operation that prevents race conditions
       const result = await updateExperienceWithAchievements(id, experienceData, achievements);
 
+      // Invalidate cache after experience update
+      await invalidateCache();
+
       res.json({ 
         message: 'Experience updated successfully',
         experience: result 
@@ -228,6 +238,9 @@ router.delete('/:id', authenticate, async (req, res) => {
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Experience not found' });
     }
+
+    // Invalidate cache after experience deletion
+    await invalidateCache();
 
     res.json({ 
       message: 'Experience deleted successfully',
