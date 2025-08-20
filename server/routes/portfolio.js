@@ -3,7 +3,8 @@ import {
   getProfile,
   getAllSkills,
   getAllExperiences,
-  getAllProjects
+  getAllProjects,
+  getAllPortfolioData
 } from '../config/portfolio-data.js';
 
 const router = express.Router();
@@ -11,13 +12,8 @@ const router = express.Router();
 // Get all portfolio data in a single API call (public endpoint)
 router.get('/data', async (req, res) => {
   try {
-    // Fetch all portfolio data in parallel for better performance
-    const [profile, skills, experiences, projects] = await Promise.all([
-      getProfile(),
-      getAllSkills(),
-      getAllExperiences(),
-      getAllProjects()
-    ]);
+    // Fetch all portfolio data with optimized single query
+    const { profile, skills, experiences, projects } = await getAllPortfolioData();
 
     // Sort skills by proficiency and sort order
     skills.sort((a, b) => {

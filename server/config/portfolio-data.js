@@ -727,6 +727,88 @@ export const updateProjectsOrder = async (projectsWithOrder) => {
 };
 
 /**
+ * BULK PORTFOLIO DATA FETCH - Optimized for the /api/portfolio/data endpoint
+ * Fetches all portfolio data in a single database query to reduce latency
+ */
+export const getAllPortfolioData = async () => {
+  // Single query to get all active portfolio data
+  const result = await query(`
+    SELECT type, key, value 
+    FROM portfolio_data 
+    WHERE is_active = TRUE 
+    ORDER BY type, created_at ASC
+  `);
+  
+  // Group data by type for processing
+  const dataByType = result.rows.reduce((acc, row) => {
+    if (!acc[row.type]) acc[row.type] = [];
+    acc[row.type].push(row.value);
+    return acc;
+  }, {});
+  
+  // Extract profile (single record)
+  const profile = dataByType.profile?.[0] || null;
+  
+  // Extract skills
+  const skills = dataByType.skill || [];
+  
+  // Process experiences with achievements
+  const experiences = dataByType.experience || [];
+  const achievements = dataByType.achievement || [];
+  
+  // Group achievements by experience_id
+  const achievementsByExperience = achievements.reduce((acc, achievement) => {
+    const expId = achievement.experience_id;
+    if (!acc[expId]) acc[expId] = [];
+    acc[expId].push(achievement);
+    return acc;
+  }, {});
+  
+  // Attach achievements to experiences
+  const experiencesWithAchievements = experiences.map(experience => ({
+    ...experience,
+    achievements: (achievementsByExperience[experience.id] || [])
+      .sort((a, b) => a.sort_order - b.sort_order)
+  })).sort((a, b) => a.sort_order - b.sort_order);
+  
+  // Process projects with technologies and images
+  const projects = dataByType.project || [];
+  const technologies = dataByType.project_tech || [];
+  const images = dataByType.project_image || [];
+  
+  // Group technologies by project_id
+  const technologiesByProject = technologies.reduce((acc, tech) => {
+    const projectId = tech.project_id;
+    if (!acc[projectId]) acc[projectId] = [];
+    acc[projectId].push(tech.technology);
+    return acc;
+  }, {});
+  
+  // Group images by project_id
+  const imagesByProject = images.reduce((acc, image) => {
+    const projectId = image.project_id;
+    if (!acc[projectId]) acc[projectId] = [];
+    acc[projectId].push(image);
+    return acc;
+  }, {});
+  
+  // Attach technologies and images to projects
+  const projectsWithDetails = projects.map(project => ({
+    ...project,
+    technologies: technologiesByProject[project.id] || [],
+    images: (imagesByProject[project.id] || [])
+      .sort((a, b) => a.sort_order - b.sort_order)
+  })).sort((a, b) => a.sort_order - b.sort_order);
+  
+  return {
+    profile,
+    skills,
+    experiences: experiencesWithAchievements,
+    projects: projectsWithDetails
+  };
+};
+
+/**
  * DASHBOARD STATISTICS
  */
 export const getDashboardStats = async () => {

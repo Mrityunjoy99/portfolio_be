@@ -85,7 +85,12 @@ const query = async (text, params, retryCount = 0) => {
     
     const res = await pool.query(text, params);
     const duration = Date.now() - start;
-    console.log('📊 Executed query', { text: text.substring(0, 50) + '...', duration, rows: res.rowCount });
+    console.log('📊 Executed query', { 
+      text: text, 
+      params: params?params:null,
+      duration, 
+      rows: res.rowCount 
+    });
     return res;
   } catch (error) {
     const duration = Date.now() - start;
