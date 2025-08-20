@@ -1,9 +1,5 @@
 import express from 'express';
 import { 
-  getProfile,
-  getAllSkills,
-  getAllExperiences,
-  getAllProjects,
   getAllPortfolioData
 } from '../config/portfolio-data.js';
 
@@ -48,14 +44,11 @@ router.get('/data', async (req, res) => {
       return a.name.localeCompare(b.name);
     });
 
-    // Filter projects to only show published ones for public access
-    const publishedProjects = projects.filter(project => project.status === 'published');
-
     const portfolioData = {
       profile,
       skills,
       experiences,
-      projects: publishedProjects
+      projects
     };
 
     res.json(portfolioData);

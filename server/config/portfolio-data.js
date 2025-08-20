@@ -749,8 +749,9 @@ export const getAllPortfolioData = async () => {
   // Extract profile (single record)
   const profile = dataByType.profile?.[0] || null;
   
-  // Extract skills
-  const skills = dataByType.skill || [];
+  // Extract skills and filter to only featured ones (for public portfolio)
+  const allSkills = dataByType.skill || [];
+  const skills = allSkills.filter(skill => skill.is_featured === true);
   
   // Process experiences with achievements
   const experiences = dataByType.experience || [];
@@ -792,13 +793,15 @@ export const getAllPortfolioData = async () => {
     return acc;
   }, {});
   
-  // Attach technologies and images to projects
-  const projectsWithDetails = projects.map(project => ({
-    ...project,
-    technologies: technologiesByProject[project.id] || [],
-    images: (imagesByProject[project.id] || [])
-      .sort((a, b) => a.sort_order - b.sort_order)
-  })).sort((a, b) => a.sort_order - b.sort_order);
+  // Attach technologies and images to projects, filter to published and featured only
+  const projectsWithDetails = projects
+    .filter(project => project.status === 'published')
+    .map(project => ({
+      ...project,
+      technologies: technologiesByProject[project.id] || [],
+      images: (imagesByProject[project.id] || [])
+        .sort((a, b) => a.sort_order - b.sort_order)
+    })).sort((a, b) => a.sort_order - b.sort_order);
   
   return {
     profile,
