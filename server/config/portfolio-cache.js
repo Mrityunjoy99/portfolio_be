@@ -14,7 +14,7 @@ import { query } from './database.js';
 
 // Simplified cache configuration
 const CACHE_CONFIG = {
-  ENABLED: process.env.PORTFOLIO_CACHE_ENABLED == 'true',
+  ENABLED: process.env.PORTFOLIO_CACHE_ENABLED === 'true',
   REFRESH_INTERVAL: parseInt(process.env.PORTFOLIO_CACHE_REFRESH_INTERVAL) || 1800 // seconds
 };
 
