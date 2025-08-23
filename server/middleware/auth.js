@@ -29,7 +29,7 @@ const authenticate = async (req, res, next) => {
       
       // Check if user still exists and is active
       const result = await query(
-        'SELECT id, username, email, is_active FROM admin_users WHERE id = $1 AND is_active = true',
+        'SELECT id, email, role, provider, is_active FROM admin_users WHERE id = $1 AND is_active = true',
         [decoded.userId]
       );
 
@@ -40,12 +40,14 @@ const authenticate = async (req, res, next) => {
       // Add user info to request object
       req.user = {
         id: result.rows[0].id,
-        username: result.rows[0].username,
-        email: result.rows[0].email
+        email: result.rows[0].email,
+        role: result.rows[0].role,
+        provider: result.rows[0].provider
       };
 
       next();
     } catch (jwtError) {
+      console.info("jwtError: ", jwtError);
       if (jwtError.name === 'TokenExpiredError') {
         return res.status(401).json({ error: 'Token expired' });
       } else if (jwtError.name === 'JsonWebTokenError') {
@@ -75,15 +77,16 @@ const optionalAuth = async (req, res, next) => {
       const decoded = verifyToken(token);
       
       const result = await query(
-        'SELECT id, username, email, is_active FROM admin_users WHERE id = $1 AND is_active = true',
+        'SELECT id, email, role, provider, is_active FROM admin_users WHERE id = $1 AND is_active = true',
         [decoded.userId]
       );
 
       if (result.rows.length > 0) {
         req.user = {
           id: result.rows[0].id,
-          username: result.rows[0].username,
-          email: result.rows[0].email
+          email: result.rows[0].email,
+          role: result.rows[0].role,
+          provider: result.rows[0].provider
         };
       }
     } catch (jwtError) {

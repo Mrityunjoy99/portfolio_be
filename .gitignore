@@ -5,3 +5,4 @@ reports/
 .vercel
 tmp/
 !tmp/cache/
+bkp/

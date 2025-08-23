@@ -23,11 +23,13 @@ app.use(helmet({
   crossOriginResourcePolicy: { policy: "cross-origin" }
 }));
 
-// Rate limiting
+// Rate limiting - more permissive for normal usage
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // limit each IP to 100 requests per windowMs
-  message: 'Too many requests from this IP, please try again later.'
+  max: 500, // limit each IP to 500 requests per 15 minutes (5x more permissive)
+  message: 'Too many requests from this IP, please try again later.',
+  standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
+  legacyHeaders: false, // Disable the `X-RateLimit-*` headers
 });
 app.use('/api/', limiter);
 
@@ -133,6 +135,7 @@ import adminRoutes from './routes/admin.js';
 import filesRoutes from './routes/files.js';
 import publicRoutes from './routes/public.js';
 import portfolioRoutes from './routes/portfolio.js';
+import analyticsRoutes from './routes/analytics.js';
 
 app.use('/api/auth', authRoutes);
 app.use('/api/profile', profileRoutes);
@@ -143,6 +146,7 @@ app.use('/api/contact', contactRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/files', filesRoutes);
 app.use('/api/portfolio', portfolioRoutes);
+app.use('/api/analytics', analyticsRoutes);
 app.use('/api', publicRoutes);
 
 // Health check endpoint

@@ -1,5 +1,5 @@
 import express from 'express';
-import bcrypt from 'bcryptjs';
+import { OAuth2Client } from 'google-auth-library';
 import { body, validationResult } from 'express-validator';
 import { query } from '../config/database.js';
 import { generateToken, authenticate } from '../middleware/auth.js';
@@ -7,10 +7,117 @@ import passport from '../config/passport.js';
 
 const router = express.Router();
 
-// Login endpoint
-router.post('/login', [
-  body('username').trim().notEmpty().withMessage('Username is required'),
-  body('password').notEmpty().withMessage('Password is required')
+// Initialize Google OAuth client
+const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+
+// Helper function to verify Google ID token
+async function verifyGoogleToken(idToken) {
+  try {
+    const ticket = await googleClient.verifyIdToken({
+      idToken,
+      audience: process.env.GOOGLE_CLIENT_ID,
+    });
+    return ticket.getPayload();
+  } catch (error) {
+    console.error('Google token verification failed:', error);
+    return null;
+  }
+}
+
+// Helper function to check if email is authorized admin (from database)
+async function isAuthorizedAdmin(email) {
+  try {
+    const result = await query(
+      'SELECT id FROM admin_users WHERE email = $1 AND is_active = TRUE',
+      [email.toLowerCase()]
+    );
+    return result.rows.length > 0;
+  } catch (error) {
+    console.error('Error checking admin authorization:', error);
+    return false;
+  }
+}
+
+// Helper function to create or update admin user
+async function createOrUpdateAdmin(googlePayload) {
+  const { email, sub: googleId, name, picture } = googlePayload;
+  
+  // Check if user exists
+  let result = await query(
+    'SELECT * FROM admin_users WHERE email = $1',
+    [email]
+  );
+
+  let user;
+  if (result.rows.length > 0) {
+    // Update existing user
+    user = result.rows[0];
+    await query(
+      `UPDATE admin_users 
+       SET google_id = $1, avatar_url = $2, last_login = NOW(), provider = 'google'
+       WHERE id = $3`,
+      [googleId, picture, user.id]
+    );
+    console.log(`✅ Updated existing admin user: ${email}`);
+  } else {
+    // Create new admin user
+    const insertResult = await query(
+      `INSERT INTO admin_users (email, google_id, avatar_url, role, provider, is_active, created_at, last_login)
+       VALUES ($1, $2, $3, 'admin', 'google', true, NOW(), NOW())
+       RETURNING *`,
+      [email, googleId, picture]
+    );
+    user = insertResult.rows[0];
+    console.log(`✅ Created new admin user: ${email}`);
+  }
+
+  return user;
+}
+
+// Google OAuth for web (redirects to frontend)
+router.get('/google', (req, res, next) => {
+  if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
+    return res.status(501).json({ error: 'Google OAuth not configured' });
+  }
+  passport.authenticate('google', { 
+    scope: ['profile', 'email'],
+    prompt: 'select_account'
+  })(req, res, next);
+});
+
+// Google OAuth callback (for web)
+router.get('/google/callback', (req, res, next) => {
+  if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:8080';
+    return res.redirect(`${frontendUrl}/admin?error=oauth_not_configured`);
+  }
+  
+  passport.authenticate('google', { 
+    failureRedirect: `${process.env.FRONTEND_URL || 'http://localhost:8080'}/admin/login?error=auth_failed`,
+    session: false 
+  })(req, res, (err) => {
+    if (err) {
+      console.error('Google OAuth callback error:', err);
+      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:8080';
+      return res.redirect(`${frontendUrl}/admin/login?error=auth_failed`);
+    }
+    
+    // Generate JWT token for the authenticated user
+    const token = generateToken({
+      userId: req.user.id,
+      email: req.user.email,
+      role: req.user.role
+    });
+
+    // Redirect to frontend dashboard with token
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:8080';
+    res.redirect(`${frontendUrl}/admin/dashboard?token=${token}&email=${encodeURIComponent(req.user.email)}`);
+  });
+});
+
+// Google OAuth for API (Postman-friendly)
+router.post('/google/token', [
+  body('id_token').notEmpty().withMessage('Google ID token is required')
 ], async (req, res) => {
   try {
     // Check validation errors
@@ -22,37 +129,33 @@ router.post('/login', [
       });
     }
 
-    const { username, password } = req.body;
+    const { id_token } = req.body;
 
-    // Find user by username or email
-    const result = await query(
-      'SELECT id, username, email, password_hash, is_active FROM admin_users WHERE (username = $1 OR email = $1) AND is_active = true',
-      [username]
-    );
-
-    if (result.rows.length === 0) {
-      return res.status(401).json({ error: 'Invalid credentials' });
+    // Verify Google ID token
+    const googlePayload = await verifyGoogleToken(id_token);
+    if (!googlePayload) {
+      return res.status(401).json({ error: 'Invalid Google ID token' });
     }
 
-    const user = result.rows[0];
+    const { email } = googlePayload;
+    console.log(`🔐 Google ID token auth attempt for: ${email}`);
 
-    // Verify password
-    const isValidPassword = await bcrypt.compare(password, user.password_hash);
-    if (!isValidPassword) {
-      return res.status(401).json({ error: 'Invalid credentials' });
+    // Check if email is authorized
+    if (!(await isAuthorizedAdmin(email))) {
+      console.log(`❌ Access denied for: ${email} (not in admin list)`);
+      return res.status(403).json({ 
+        error: 'Access denied. You are not authorized to access the admin panel.' 
+      });
     }
 
-    // Update last login
-    await query(
-      'UPDATE admin_users SET last_login = NOW() WHERE id = $1',
-      [user.id]
-    );
+    // Create or update admin user
+    const user = await createOrUpdateAdmin(googlePayload);
 
-    // Generate token
+    // Generate JWT token
     const token = generateToken({
       userId: user.id,
-      username: user.username,
-      email: user.email
+      email: user.email,
+      role: user.role || 'admin'
     });
 
     res.json({
@@ -60,13 +163,16 @@ router.post('/login', [
       token,
       user: {
         id: user.id,
-        username: user.username,
-        email: user.email
+        email: user.email,
+        role: user.role || 'admin',
+        provider: 'google',
+        avatar_url: user.avatar_url
       }
     });
+
   } catch (error) {
-    console.error('Login error:', error);
-    res.status(500).json({ error: 'Login failed' });
+    console.error('Google token login error:', error);
+    res.status(500).json({ error: 'Authentication failed' });
   }
 });
 
@@ -74,7 +180,7 @@ router.post('/login', [
 router.get('/me', authenticate, async (req, res) => {
   try {
     const result = await query(
-      'SELECT id, username, email, created_at, last_login FROM admin_users WHERE id = $1',
+      'SELECT id, email, role, provider, avatar_url, created_at, last_login FROM admin_users WHERE id = $1',
       [req.user.id]
     );
 
@@ -89,112 +195,29 @@ router.get('/me', authenticate, async (req, res) => {
   }
 });
 
-// Change password
-router.post('/change-password', [
-  authenticate,
-  body('currentPassword').notEmpty().withMessage('Current password is required'),
-  body('newPassword').isLength({ min: 6 }).withMessage('New password must be at least 6 characters long')
-], async (req, res) => {
-  try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ 
-        error: 'Validation failed', 
-        details: errors.array() 
-      });
-    }
-
-    const { currentPassword, newPassword } = req.body;
-
-    // Get current user with password
-    const result = await query(
-      'SELECT password_hash FROM admin_users WHERE id = $1',
-      [req.user.id]
-    );
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-
-    // Verify current password
-    const isValidPassword = await bcrypt.compare(currentPassword, result.rows[0].password_hash);
-    if (!isValidPassword) {
-      return res.status(401).json({ error: 'Current password is incorrect' });
-    }
-
-    // Hash new password
-    const saltRounds = 12;
-    const newPasswordHash = await bcrypt.hash(newPassword, saltRounds);
-
-    // Update password
-    await query(
-      'UPDATE admin_users SET password_hash = $1, updated_at = NOW() WHERE id = $2',
-      [newPasswordHash, req.user.id]
-    );
-
-    res.json({ message: 'Password changed successfully' });
-  } catch (error) {
-    console.error('Change password error:', error);
-    res.status(500).json({ error: 'Failed to change password' });
-  }
-});
-
-// Logout endpoint (client-side token removal)
-router.post('/logout', authenticate, (req, res) => {
-  res.json({ message: 'Logout successful' });
-});
-
 // Verify token endpoint
 router.get('/verify', authenticate, (req, res) => {
   res.json({ 
     valid: true, 
     user: {
       id: req.user.id,
-      username: req.user.username,
       email: req.user.email,
-      role: req.user.role,
-      provider: req.user.provider
+      role: req.user.role || 'admin',
+      provider: req.user.provider || 'google'
     }
   });
 });
 
-// Google OAuth routes (only if configured)
-router.get('/google', (req, res, next) => {
-  if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
-    return res.status(501).json({ error: 'Google OAuth not configured' });
-  }
-  passport.authenticate('google', { 
-    scope: ['profile', 'email'],
-    prompt: 'select_account'
-  })(req, res, next);
-});
-
-router.get('/google/callback', (req, res, next) => {
-  if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:8080';
-    return res.redirect(`${frontendUrl}/admin?error=oauth_not_configured`);
-  }
-  
-  passport.authenticate('google', { 
-    failureRedirect: `${process.env.FRONTEND_URL || 'http://localhost:8080'}/admin?error=auth_failed`,
-    session: false 
-  })(req, res, (err) => {
-    if (err) {
-      console.error('Google OAuth callback error:', err);
-      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:8080';
-      return res.redirect(`${frontendUrl}/admin?error=auth_failed`);
-    }
+// Get admin emails from environment (for reference)
+router.get('/admin/list', authenticate, (req, res) => {
+  const adminEmails = (process.env.ADMIN_EMAILS || 'mrityunjoydey1999@gmail.com')
+    .split(',')
+    .map(e => e.trim());
     
-    // Generate JWT token for the authenticated user
-    const token = generateToken({
-      userId: req.user.id,
-      email: req.user.email,
-      role: req.user.role
-    });
-
-    // Redirect to frontend with token
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:8080';
-    res.redirect(`${frontendUrl}/admin?token=${token}&email=${encodeURIComponent(req.user.email)}`);
+  res.json({ 
+    message: 'Admin emails are managed via ADMIN_EMAILS environment variable',
+    current_admins: adminEmails,
+    note: 'To add/remove admins, update the ADMIN_EMAILS environment variable and restart the server'
   });
 });
 
@@ -205,6 +228,11 @@ router.get('/google/status', (req, res) => {
     clientId: process.env.GOOGLE_CLIENT_ID ? 'configured' : 'missing',
     callbackUrl: process.env.GOOGLE_CALLBACK_URL || "http://localhost:8000/api/auth/google/callback"
   });
+});
+
+// Logout endpoint (client-side token removal)
+router.post('/logout', authenticate, (req, res) => {
+  res.json({ message: 'Logout successful. Please remove token from client.' });
 });
 
 export default router;
